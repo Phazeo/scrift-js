@@ -3,7 +3,7 @@
  *
  * Usage:
  *
- *     import { Scrift } from '@scrift/sdk';
+ *     import { Scrift } from 'scrift-sdk';
  *
  *     const client = new Scrift({ apiKey: process.env.SCRIFT_API_KEY! });
  *     const stripe = await client.catalog.get('stripe');
@@ -45,7 +45,7 @@ export class ScriftClient {
  * Short, ergonomic alias for {@link ScriftClient}. This is the name users
  * are expected to import in 99% of cases:
  *
- *     import { Scrift } from '@scrift/sdk';
+ *     import { Scrift } from 'scrift-sdk';
  *     const client = new Scrift({ apiKey: '…' });
  */
 export const Scrift = ScriftClient;

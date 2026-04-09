@@ -124,7 +124,7 @@ export class HttpClient {
   private buildHeaders(hasBody: boolean): Headers {
     const headers = new Headers({
       'X-API-Key': this.apiKey,
-      'User-Agent': `scrift-js/${VERSION}`,
+      'User-Agent': `scrift-sdk/${VERSION}`,
       Accept: 'application/json, image/svg+xml;q=0.9, */*;q=0.1',
     });
     if (hasBody) {

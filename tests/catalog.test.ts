@@ -45,7 +45,7 @@ describe('CatalogResource.get', () => {
 
     await client.catalog.get('stripe');
 
-    expect(calls[0]?.headers['user-agent']).toMatch(/^scrift-js\/\d+\.\d+\.\d+$/);
+    expect(calls[0]?.headers['user-agent']).toMatch(/^scrift-sdk\/\d+\.\d+\.\d+$/);
   });
 
   it('URL-encodes slugs containing special characters', async () => {
