@@ -1,5 +1,5 @@
 {
-  "name": "@scrift/sdk",
+  "name": "scrift-sdk",
   "version": "0.1.0",
   "description": "TypeScript SDK for the Scrift brand asset API",
   "keywords": [
