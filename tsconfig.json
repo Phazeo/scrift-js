@@ -23,8 +23,7 @@
     "isolatedModules": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": ["node"],
-    "ignoreDeprecations": "6.0"
+    "types": ["node"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "tests", "**/*.test.ts"]

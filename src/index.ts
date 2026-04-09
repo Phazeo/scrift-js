@@ -1,5 +1,5 @@
 /**
- * Public entry point for `@scrift/sdk`.
+ * Public entry point for `scrift-sdk`.
  *
  * Everything a user of this library can reach is re-exported from this
  * file. If it's not listed here, it's internal — do not rely on it.

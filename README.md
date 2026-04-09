@@ -1,4 +1,4 @@
-# @scrift/sdk
+# scrift-sdk
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
@@ -10,15 +10,15 @@ browsers, Deno, Bun, Cloudflare Workers, Vercel Edge.
 ## Install
 
 ```bash
-npm install @scrift/sdk
+npm install scrift-sdk
 ```
 
-Also available via `pnpm add @scrift/sdk` and `yarn add @scrift/sdk`.
+Also available via `pnpm add scrift-sdk` and `yarn add scrift-sdk`.
 
 ## Quick start
 
 ```ts
-import { Scrift } from '@scrift/sdk';
+import { Scrift } from 'scrift-sdk';
 
 const client = new Scrift({ apiKey: process.env.SCRIFT_API_KEY! });
 
@@ -95,7 +95,7 @@ import {
   RateLimitError,
   ScriftError,
   ValidationError,
-} from '@scrift/sdk';
+} from 'scrift-sdk';
 
 try {
   const brand = await client.catalog.get('nonexistent');
@@ -143,7 +143,7 @@ other 4xx errors — those fail fast. If the retry also returns 429, a
 
 ## Works everywhere
 
-`@scrift/sdk` uses only the Fetch API and `AbortController`, so it runs in:
+`scrift-sdk` uses only the Fetch API and `AbortController`, so it runs in:
 
 - Node.js 18+ (18/20/22/24)
 - Modern browsers (Chrome, Firefox, Safari, Edge)

@@ -2,7 +2,7 @@
 
 ## Overview
 
-`@scrift/sdk` is a thin, strongly-typed HTTP client for `api.scrift.app`.
+`scrift-sdk` is a thin, strongly-typed HTTP client for `api.scrift.app`.
 It follows the same pattern as the Stripe, Anthropic, and OpenAI SDKs — a
 public client class that owns a transport layer and exposes resources, each
 of which is a flat collection of methods that delegate to the transport.
@@ -76,7 +76,7 @@ behaviors are provided transparently:
 
 - **Authentication.** The `X-API-Key` header is injected on every
   request from the `apiKey` passed to the constructor.
-- **User-Agent.** `scrift-js/{VERSION}` is sent on every request.
+- **User-Agent.** `scrift-sdk/{VERSION}` is sent on every request.
 - **Timeout.** Every request is bound to an `AbortController` with a
   default timeout of 30s (configurable via `timeoutMs`).
 - **Retry.** Exactly one retry on HTTP 429, respecting the `Retry-After`

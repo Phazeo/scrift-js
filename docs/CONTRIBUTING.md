@@ -1,4 +1,4 @@
-# Contributing to `@scrift/sdk`
+# Contributing to `scrift-sdk`
 
 Thanks for your interest in improving the SDK! This document covers how
 to get a development environment set up, the quality bar we hold every
@@ -128,7 +128,7 @@ Open an issue at
 with:
 
 - Your Node.js version (`node --version`).
-- Your SDK version (`npm ls @scrift/sdk`).
+- Your SDK version (`npm ls scrift-sdk`).
 - A minimal reproduction (5–20 lines is ideal).
 - What you expected to happen.
 - What actually happened, including the full error.
