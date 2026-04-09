@@ -1,0 +1,62 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Testing / coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# Environment files — never commit secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+logs/
+*.log
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Package manager locks we don't want in this repo
+# (we commit package-lock.json; ignore alternate managers' locks)
+pnpm-lock.yaml
+yarn.lock
+bun.lockb
+
+# AI tool artifacts — never commit these
+CLAUDE.md
+claude.md
+.claude/
+.cursor/
+.cursorignore
+.cursorrules
+.aider/
+.aider.tags.cache.v3/
+aider.conf.yml
+.continue/
+.copilot/
+.github/copilot-instructions.md
+
+# Temporary
+*.tmp
+*.temp
+.cache/

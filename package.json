@@ -1,0 +1,58 @@
+{
+  "name": "@scrift/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Scrift brand asset API",
+  "keywords": [
+    "scrift",
+    "brand",
+    "logo",
+    "svg",
+    "sdk",
+    "api",
+    "typescript"
+  ],
+  "license": "MIT",
+  "author": "Scrift <hello@phazeo.com>",
+  "homepage": "https://scrift.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/phazeo/scrift-js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/phazeo/scrift-js/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "@vitest/coverage-v8": "^4.1.4",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  }
+}

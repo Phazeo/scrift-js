@@ -1,0 +1,284 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  APIError,
+  AuthenticationError,
+  NotFoundError,
+  RateLimitError,
+  Scrift,
+  ScriftError,
+  ValidationError,
+} from '../src/index.js';
+import { parseRetryAfter } from '../src/http.js';
+import {
+  createFetchStub,
+  ERROR_AUTH,
+  ERROR_INTERNAL,
+  ERROR_NOT_FOUND,
+  ERROR_RATE_LIMIT,
+  ERROR_VALIDATION,
+  SERVICE_JSON,
+} from './fixtures.js';
+
+function makeClient(fetchStub: typeof fetch): Scrift {
+  return new Scrift({ apiKey: 'sk_test_abc123', fetch: fetchStub });
+}
+
+// All 429-retry tests in this file pass `Retry-After: 0` on the first
+// response, so the real `sleep` resolves immediately and the suite stays
+// fast without any module-level mocking.
+
+describe('error class hierarchy', () => {
+  it('all subclasses inherit from ScriftError', () => {
+    expect(new AuthenticationError('m')).toBeInstanceOf(ScriftError);
+    expect(new NotFoundError('m')).toBeInstanceOf(ScriftError);
+    expect(new ValidationError('m')).toBeInstanceOf(ScriftError);
+    expect(new RateLimitError('m')).toBeInstanceOf(ScriftError);
+    expect(new APIError('m')).toBeInstanceOf(ScriftError);
+  });
+
+  it('ScriftError is an instance of Error', () => {
+    expect(new ScriftError('m')).toBeInstanceOf(Error);
+  });
+
+  it('preserves message, status code, and error code', () => {
+    const err = new APIError('boom', { statusCode: 500, errorCode: 'x' });
+    expect(err.message).toBe('boom');
+    expect(err.statusCode).toBe(500);
+    expect(err.errorCode).toBe('x');
+  });
+
+  it('RateLimitError exposes retryAfter', () => {
+    const err = new RateLimitError('slow down', { retryAfter: 7 });
+    expect(err.retryAfter).toBe(7);
+  });
+});
+
+describe('error mapping by HTTP status', () => {
+  it('401 → AuthenticationError', async () => {
+    const { fetch } = createFetchStub([{ status: 401, body: ERROR_AUTH }]);
+    const client = makeClient(fetch);
+    await expect(client.catalog.get('stripe')).rejects.toBeInstanceOf(
+      AuthenticationError,
+    );
+  });
+
+  it('404 → NotFoundError', async () => {
+    const { fetch } = createFetchStub([{ status: 404, body: ERROR_NOT_FOUND }]);
+    const client = makeClient(fetch);
+    await expect(client.catalog.get('nope')).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('422 → ValidationError', async () => {
+    const { fetch } = createFetchStub([{ status: 422, body: ERROR_VALIDATION }]);
+    const client = makeClient(fetch);
+    await expect(client.catalog.search('x')).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('500 → APIError', async () => {
+    const { fetch } = createFetchStub([{ status: 500, body: ERROR_INTERNAL }]);
+    const client = makeClient(fetch);
+    await expect(client.catalog.get('stripe')).rejects.toBeInstanceOf(APIError);
+  });
+
+  it('preserves statusCode, errorCode, and message on mapped errors', async () => {
+    const { fetch } = createFetchStub([{ status: 401, body: ERROR_AUTH }]);
+    const client = makeClient(fetch);
+    try {
+      await client.catalog.get('stripe');
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(AuthenticationError);
+      if (err instanceof AuthenticationError) {
+        expect(err.statusCode).toBe(401);
+        expect(err.errorCode).toBe('invalid_api_key');
+        expect(err.message).toBe('Invalid API key');
+      }
+    }
+  });
+
+  it('falls back to status-based message on non-JSON bodies', async () => {
+    const { fetch } = createFetchStub([
+      {
+        status: 502,
+        body: '<html>Bad Gateway</html>',
+        raw: true,
+        headers: { 'Content-Type': 'text/html' },
+      },
+    ]);
+    const client = makeClient(fetch);
+    try {
+      await client.catalog.get('stripe');
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(APIError);
+      if (err instanceof APIError) {
+        expect(err.statusCode).toBe(502);
+        expect(err.message).toContain('502');
+      }
+    }
+  });
+});
+
+describe('429 retry logic', () => {
+  it('retries once on 429 and succeeds', async () => {
+    const { fetch, calls } = createFetchStub([
+      {
+        status: 429,
+        body: ERROR_RATE_LIMIT,
+        headers: { 'Retry-After': '0' },
+      },
+      { body: SERVICE_JSON },
+    ]);
+    const client = makeClient(fetch);
+
+    const result = await client.catalog.get('stripe');
+
+    expect(result.slug).toBe('stripe');
+    expect(calls).toHaveLength(2);
+  });
+
+  it('surfaces RateLimitError if retry also returns 429', async () => {
+    const { fetch, calls } = createFetchStub([
+      {
+        status: 429,
+        body: ERROR_RATE_LIMIT,
+        headers: { 'Retry-After': '0' },
+      },
+      {
+        status: 429,
+        body: ERROR_RATE_LIMIT,
+        headers: { 'Retry-After': '2' },
+      },
+    ]);
+    const client = makeClient(fetch);
+
+    try {
+      await client.catalog.get('stripe');
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(RateLimitError);
+      if (err instanceof RateLimitError) {
+        expect(err.statusCode).toBe(429);
+        expect(err.retryAfter).toBe(2);
+      }
+    }
+    expect(calls).toHaveLength(2);
+  });
+
+  it('does not retry on other 4xx statuses', async () => {
+    const { fetch, calls } = createFetchStub([
+      { status: 404, body: ERROR_NOT_FOUND },
+    ]);
+    const client = makeClient(fetch);
+
+    await expect(client.catalog.get('nope')).rejects.toBeInstanceOf(NotFoundError);
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe('parseRetryAfter', () => {
+  it('parses numeric seconds', () => {
+    expect(parseRetryAfter('5')).toBe(5000);
+  });
+
+  it('caps delay at 30 seconds', () => {
+    expect(parseRetryAfter('9999')).toBe(30_000);
+  });
+
+  it('parses HTTP dates into a relative delay', () => {
+    const future = new Date(Date.now() + 5_000).toUTCString();
+    const parsed = parseRetryAfter(future);
+    // Allow a few ms of jitter between Date.now() calls.
+    expect(parsed).toBeGreaterThan(4_000);
+    expect(parsed).toBeLessThanOrEqual(5_000);
+  });
+
+  it('treats past HTTP dates as zero delay', () => {
+    const past = new Date(Date.now() - 5_000).toUTCString();
+    expect(parseRetryAfter(past)).toBe(0);
+  });
+
+  it('falls back to 1s on a missing header', () => {
+    expect(parseRetryAfter(null)).toBe(1000);
+  });
+
+  it('falls back to 1s on garbage', () => {
+    expect(parseRetryAfter('not-a-number')).toBe(1000);
+  });
+});
+
+describe('client construction', () => {
+  it('requires an API key', () => {
+    // @ts-expect-error – deliberately missing the required field.
+    expect(() => new Scrift({})).toThrow(ScriftError);
+  });
+
+  it('rejects an empty API key', () => {
+    expect(() => new Scrift({ apiKey: '' })).toThrow(ScriftError);
+  });
+
+  it('honors a custom baseUrl', async () => {
+    const { fetch, calls } = createFetchStub([{ body: SERVICE_JSON }]);
+    const client = new Scrift({
+      apiKey: 'sk_test',
+      baseUrl: 'https://staging.scrift.test',
+      fetch,
+    });
+    await client.catalog.get('stripe');
+    expect(calls[0]?.url).toBe('https://staging.scrift.test/v1/catalog/stripe');
+  });
+
+  it('strips a trailing slash from baseUrl', async () => {
+    const { fetch, calls } = createFetchStub([{ body: SERVICE_JSON }]);
+    const client = new Scrift({
+      apiKey: 'sk_test',
+      baseUrl: 'https://staging.scrift.test/',
+      fetch,
+    });
+    await client.catalog.get('stripe');
+    expect(calls[0]?.url).toBe('https://staging.scrift.test/v1/catalog/stripe');
+  });
+});
+
+describe('network and timeout errors', () => {
+  it('wraps fetch network failures in APIError', async () => {
+    const failingFetch: typeof fetch = async () => {
+      throw new TypeError('fetch failed');
+    };
+    const client = new Scrift({ apiKey: 'sk_test', fetch: failingFetch });
+
+    try {
+      await client.catalog.get('stripe');
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(APIError);
+      if (err instanceof APIError) {
+        expect(err.message).toContain('Network request');
+      }
+    }
+  });
+
+  it('wraps AbortError as a timeout APIError', async () => {
+    const abortingFetch: typeof fetch = async () => {
+      const err = new Error('The operation was aborted');
+      err.name = 'AbortError';
+      throw err;
+    };
+    const client = new Scrift({
+      apiKey: 'sk_test',
+      timeoutMs: 10,
+      fetch: abortingFetch,
+    });
+
+    try {
+      await client.catalog.get('stripe');
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(APIError);
+      if (err instanceof APIError) {
+        expect(err.message).toContain('timed out');
+      }
+    }
+  });
+});
