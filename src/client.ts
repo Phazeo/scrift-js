@@ -20,6 +20,7 @@
 import { HttpClient } from './http.js';
 import { BrandResource } from './resources/brand.js';
 import { CatalogResource } from './resources/catalog.js';
+import { RasterResource } from './resources/raster.js';
 import { SvgResource } from './resources/svg.js';
 import type { ScriftOptions } from './types.js';
 
@@ -27,6 +28,7 @@ export class ScriftClient {
   public readonly catalog: CatalogResource;
   public readonly svg: SvgResource;
   public readonly brand: BrandResource;
+  public readonly raster: RasterResource;
 
   constructor(options: ScriftOptions) {
     const http = new HttpClient({
@@ -38,6 +40,7 @@ export class ScriftClient {
     this.catalog = new CatalogResource(http);
     this.svg = new SvgResource(http);
     this.brand = new BrandResource(http);
+    this.raster = new RasterResource(http);
   }
 }
 

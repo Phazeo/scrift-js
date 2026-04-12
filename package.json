@@ -1,6 +1,6 @@
 {
   "name": "scrift-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TypeScript SDK for the Scrift brand asset API",
   "keywords": [
     "scrift",
@@ -41,6 +41,7 @@
     "node": ">=18"
   },
   "scripts": {
+    "lint": "eslint src/ tests/",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -49,10 +50,14 @@
     "prepublishOnly": "npm run typecheck && npm run test && npm run build"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@types/node": "^25.5.2",
     "@vitest/coverage-v8": "^4.1.4",
+    "eslint": "^9.39.4",
+    "globals": "^16.5.0",
     "tsup": "^8.5.1",
     "typescript": "^6.0.2",
+    "typescript-eslint": "^8.58.1",
     "vitest": "^4.1.4"
   }
 }

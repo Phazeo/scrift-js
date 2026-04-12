@@ -13,6 +13,7 @@ export { Scrift, ScriftClient } from './client.js';
 export { CatalogResource } from './resources/catalog.js';
 export { SvgResource } from './resources/svg.js';
 export { BrandResource } from './resources/brand.js';
+export { RasterResource } from './resources/raster.js';
 
 // Errors
 export {
@@ -20,6 +21,7 @@ export {
   AuthenticationError,
   NotFoundError,
   RateLimitError,
+  ScriftRateLimitError,
   ScriftError,
   ValidationError,
 } from './errors.js';
@@ -32,12 +34,19 @@ export type {
   CatalogListResponse,
   CssVars,
   ListOptions,
+  RasterOptions,
+  RasterSize,
+  RateLimitInfo,
   ScriftOptions,
   SearchOptions,
   SearchResponse,
+  ServiceColor,
   ServiceResponse,
   SvgOptions,
   SvgVariant,
+  SvgVariantOption,
 } from './types.js';
+
+export { RASTER_SIZES } from './types.js';
 
 export { VERSION } from './version.js';

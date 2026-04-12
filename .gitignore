@@ -60,3 +60,6 @@ aider.conf.yml
 *.tmp
 *.temp
 .cache/
+
+#docs
+docs/ENGINEERING_GOLDEN_STANDARD.md

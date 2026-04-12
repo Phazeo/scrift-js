@@ -5,18 +5,47 @@
  * names preserved). The SDK does not reshape payloads — the response you get
  * back from each method is a direct, typed view of the JSON returned by
  * api.scrift.app.
+ *
+ * JSON responses also include `rateLimit` parsed from `X-RateLimit-*` headers.
  */
 
 /**
- * Valid SVG variants accepted by the `/v1/svg/{slug}` endpoint.
+ * Rate limit quota from response headers `X-RateLimit-*`.
  */
-export type SvgVariant =
+export interface RateLimitInfo {
+  limit: number | null;
+  remaining: number | null;
+  /** Unix timestamp (seconds). */
+  resetAt: number | null;
+}
+
+/**
+ * Valid SVG variant names accepted by the `/v1/svg/{slug}` endpoint.
+ */
+export type SvgVariantOption =
   | 'mono'
   | 'color'
   | 'dark'
   | 'light'
   | 'wordmark'
   | 'icon';
+
+/**
+ * SVG variant metadata returned on catalog service entries.
+ */
+export interface SvgVariant {
+  variant: string;
+  verified: boolean;
+}
+
+/**
+ * Single color role for a service (e.g. primary, on-dark).
+ */
+export interface ServiceColor {
+  role: string;
+  hex: string;
+  source: string;
+}
 
 /**
  * CSS custom properties returned by the API.
@@ -46,10 +75,11 @@ export interface ServiceResponse {
   name: string;
   brandColor: string | null;
   darkModeColor: string | null;
-  svgVariants: null;
-  colors: null;
+  svgVariants: SvgVariant[] | null;
+  colors: ServiceColor[] | null;
   _css: CssVars | null;
   _notice: string;
+  rateLimit: RateLimitInfo | null;
 }
 
 /**
@@ -67,6 +97,7 @@ export interface BrandResponse {
   variants: string[];
   _css: CssVars | null;
   _notice: string;
+  rateLimit: RateLimitInfo | null;
 }
 
 /**
@@ -80,6 +111,7 @@ export interface BatchResponse {
   results: Record<string, ServiceResponse | null>;
   found: number;
   notFound: string[];
+  rateLimit: RateLimitInfo | null;
 }
 
 /**
@@ -89,6 +121,7 @@ export interface SearchResponse {
   matches: ServiceResponse[];
   query: string;
   total: number;
+  rateLimit: RateLimitInfo | null;
 }
 
 /**
@@ -99,6 +132,7 @@ export interface CatalogListResponse {
   total: number;
   limit: number;
   offset: number;
+  rateLimit: RateLimitInfo | null;
 }
 
 /**
@@ -149,5 +183,82 @@ export interface SearchOptions {
  */
 export interface SvgOptions {
   /** Variant to request; omit for the default. */
-  variant?: SvgVariant;
+  variant?: SvgVariantOption;
+}
+
+/** Allowed `size` values for raster image endpoints. */
+export type RasterSize = 32 | 64 | 128 | 256 | 512;
+
+export const RASTER_SIZES: ReadonlySet<RasterSize> = new Set([
+  32, 64, 128, 256, 512,
+]);
+
+/**
+ * Options for `raster.getPng` / `raster.getWebp`.
+ */
+export interface RasterOptions {
+  size?: RasterSize;
+  variant?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Client-side validation (throws TypeError)
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate `catalog.batch(slugs)` arguments before any HTTP call.
+ */
+export function assertValidBatchSlugs(slugs: string[]): void {
+  if (!Array.isArray(slugs)) {
+    throw new TypeError('slugs must be a non-empty array');
+  }
+  if (slugs.length === 0) {
+    throw new TypeError('slugs must be a non-empty array');
+  }
+  if (slugs.length > 50) {
+    throw new TypeError('slugs must contain at most 50 entries');
+  }
+  for (let i = 0; i < slugs.length; i++) {
+    const s = slugs[i];
+    if (typeof s !== 'string' || s.trim() === '') {
+      throw new TypeError(`slugs[${i}] must be a non-empty string`);
+    }
+  }
+}
+
+/**
+ * Validate `catalog.list({ limit, offset })` arguments before any HTTP call.
+ */
+export function assertValidListOptions(options: ListOptions): void {
+  if (options.limit !== undefined) {
+    if (
+      !Number.isInteger(options.limit) ||
+      options.limit < 1 ||
+      options.limit > 200
+    ) {
+      throw new TypeError('limit must be an integer between 1 and 200');
+    }
+  }
+  if (options.offset !== undefined) {
+    if (!Number.isInteger(options.offset) || options.offset < 0) {
+      throw new TypeError('offset must be a non-negative integer');
+    }
+  }
+}
+
+/**
+ * Validate raster slug and optional size before any HTTP call.
+ */
+export function assertValidRasterArgs(
+  slug: string,
+  size: RasterSize | undefined,
+): void {
+  if (typeof slug !== 'string' || slug.trim() === '') {
+    throw new TypeError('slug must be a non-empty string');
+  }
+  if (size !== undefined && !RASTER_SIZES.has(size)) {
+    throw new TypeError(
+      `size must be one of ${Array.from(RASTER_SIZES).join(', ')} when provided`,
+    );
+  }
 }

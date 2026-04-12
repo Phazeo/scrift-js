@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { NotFoundError, Scrift } from '../src/index.js';
+import { NotFoundError, Scrift, ScriftClient } from '../src/index.js';
 import { createFetchStub, ERROR_NOT_FOUND, SVG_BODY } from './fixtures.js';
 
-function makeClient(fetchStub: typeof fetch): Scrift {
-  return new Scrift({ apiKey: 'sk_test_abc123', fetch: fetchStub });
+const TEST_KEY = 'scrf_testkey123456';
+
+function makeClient(fetchStub: typeof fetch): ScriftClient {
+  return new Scrift({ apiKey: TEST_KEY, fetch: fetchStub });
 }
 
 describe('SvgResource.get', () => {

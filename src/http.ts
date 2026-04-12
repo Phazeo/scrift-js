@@ -2,39 +2,25 @@
  * HTTP transport layer.
  *
  * This is the ONLY place in the SDK that speaks HTTP. Resources delegate to
- * `HttpClient.request{Json,Text}` and never touch `fetch`, headers, retries,
- * or error mapping themselves. The dependency direction is strict:
+ * `HttpClient.request{Json,Text,ArrayBuffer}` and never touch `fetch`, headers,
+ * retries, or error mapping themselves. The dependency direction is strict:
  *
  *     resources  ──►  http  ──►  errors
  *
  * Nothing upstream of `http.ts` imports it except `client.ts`, and nothing
  * downstream of it is imported by `http.ts` except `errors.ts` and `types.ts`.
- *
- * Design notes:
- *
- *  - Zero runtime dependencies. We use the platform's native `fetch`, which
- *    is available in Node 18+, all modern browsers, Deno, Bun, Cloudflare
- *    Workers, Vercel Edge, and every other runtime we care about.
- *  - Timeouts are implemented with `AbortController` rather than any
- *    runtime-specific option, so the same code path works everywhere.
- *  - Retries are extremely conservative: one attempt on 429 only, capped at
- *    30 seconds of backoff. All other 4xx responses fail fast — retrying a
- *    bad request will never make it a good one.
- *  - Error mapping lives in exactly one place (`raiseForStatus`). Resources
- *    NEVER catch errors, NEVER inspect response status, NEVER parse error
- *    bodies. If you find yourself wanting to do any of those in a resource,
- *    you're in the wrong layer — add the behavior to `http.ts` instead.
  */
 
+import { validateApiKey } from './api-key.js';
 import {
   APIError,
   AuthenticationError,
   NotFoundError,
-  RateLimitError,
+  ScriftRateLimitError,
   ScriftError,
   ValidationError,
 } from './errors.js';
-import type { ApiErrorBody } from './types.js';
+import type { ApiErrorBody, RateLimitInfo } from './types.js';
 import { VERSION } from './version.js';
 
 const DEFAULT_BASE_URL = 'https://api.scrift.app';
@@ -54,6 +40,8 @@ export interface RequestOptions {
   path: string;
   query?: Record<string, string | number | undefined>;
   body?: unknown;
+  /** Override default `Accept` header for this request. */
+  accept?: string;
 }
 
 /**
@@ -63,6 +51,78 @@ export interface RequestOptions {
 export const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Parse `X-RateLimit-*` headers into {@link RateLimitInfo}.
+ * Header names are matched case-insensitively via the Fetch `Headers` API.
+ */
+export function parseRateLimitHeaders(headers: Headers): RateLimitInfo | null {
+  const limit = headerInt(headers, 'x-ratelimit-limit');
+  const remaining = headerInt(headers, 'x-ratelimit-remaining');
+  const resetAt = headerInt(headers, 'x-ratelimit-reset');
+  if (limit === null && remaining === null && resetAt === null) return null;
+  return { limit, remaining, resetAt };
+}
+
+function headerInt(headers: Headers, name: string): number | null {
+  const raw = headers.get(name);
+  if (raw === null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+function attachRateLimit(
+  data: Record<string, unknown>,
+  rateLimit: RateLimitInfo | null,
+): Record<string, unknown> & { rateLimit: RateLimitInfo | null } {
+  const withTop = { ...data, rateLimit } as Record<string, unknown> & {
+    rateLimit: RateLimitInfo | null;
+  };
+
+  if (rateLimit === null) {
+    return withTop;
+  }
+
+  if ('results' in data && data.results && typeof data.results === 'object') {
+    const results = { ...(data.results as Record<string, unknown>) };
+    for (const key of Object.keys(results)) {
+      const v = results[key];
+      if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+        results[key] = {
+          ...(v as Record<string, unknown>),
+          rateLimit,
+        };
+      }
+    }
+    return { ...withTop, results } as typeof withTop;
+  }
+
+  if ('items' in data && Array.isArray(data.items)) {
+    return {
+      ...withTop,
+      items: (data.items as unknown[]).map((item) =>
+        item !== null && typeof item === 'object'
+          ? { ...(item as Record<string, unknown>), rateLimit }
+          : item,
+      ),
+    } as typeof withTop;
+  }
+
+  if ('matches' in data && Array.isArray(data.matches)) {
+    return {
+      ...withTop,
+      matches: (data.matches as unknown[]).map((item) =>
+        item !== null && typeof item === 'object'
+          ? { ...(item as Record<string, unknown>), rateLimit }
+          : item,
+      ),
+    } as typeof withTop;
+  }
+
+  return withTop as Record<string, unknown> & {
+    rateLimit: RateLimitInfo | null;
+  };
+}
+
 export class HttpClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -70,9 +130,7 @@ export class HttpClient {
   private readonly fetchImpl: typeof fetch;
 
   constructor(options: HttpClientOptions) {
-    if (!options.apiKey || typeof options.apiKey !== 'string') {
-      throw new ScriftError('apiKey is required and must be a non-empty string');
-    }
+    validateApiKey(options.apiKey);
     this.apiKey = options.apiKey;
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -84,17 +142,24 @@ export class HttpClient {
           'or pass a `fetch` option to the Scrift constructor.',
       );
     }
-    // Bind to preserve `this` when the global fetch comes from a context
-    // that expects to be invoked as a method (e.g. some edge runtimes).
     this.fetchImpl = fetchImpl.bind(globalThis);
   }
 
   /**
    * Execute a request and parse the response body as JSON.
+   * Attaches {@link RateLimitInfo} from response headers to the returned object
+   * (and nested service entries for batch/list/search).
    */
-  async requestJson<T>(options: RequestOptions): Promise<T> {
+  async requestJson<T extends object>(
+    options: RequestOptions,
+  ): Promise<T & { rateLimit: RateLimitInfo | null }> {
     const response = await this.send(options);
-    return (await response.json()) as T;
+    const data = (await response.json()) as T;
+    const rateLimit = parseRateLimitHeaders(response.headers);
+    return attachRateLimit(
+      data as Record<string, unknown>,
+      rateLimit,
+    ) as T & { rateLimit: RateLimitInfo | null };
   }
 
   /**
@@ -104,6 +169,15 @@ export class HttpClient {
   async requestText(options: RequestOptions): Promise<string> {
     const response = await this.send(options);
     return await response.text();
+  }
+
+  /**
+   * Execute a request and return the raw response body bytes.
+   * Used by PNG/WebP raster endpoints.
+   */
+  async requestArrayBuffer(options: RequestOptions): Promise<ArrayBuffer> {
+    const response = await this.send(options);
+    return await response.arrayBuffer();
   }
 
   // ---------------------------------------------------------------------
@@ -121,11 +195,13 @@ export class HttpClient {
     return url.toString();
   }
 
-  private buildHeaders(hasBody: boolean): Headers {
+  private buildHeaders(hasBody: boolean, accept?: string): Headers {
     const headers = new Headers({
       'X-API-Key': this.apiKey,
       'User-Agent': `scrift-sdk/${VERSION}`,
-      Accept: 'application/json, image/svg+xml;q=0.9, */*;q=0.1',
+      Accept:
+        accept ??
+        'application/json, image/svg+xml;q=0.9, image/png;q=0.8, image/webp;q=0.8, */*;q=0.1',
     });
     if (hasBody) {
       headers.set('Content-Type', 'application/json');
@@ -140,16 +216,14 @@ export class HttpClient {
 
     const init: RequestInit = {
       method,
-      headers: this.buildHeaders(hasBody),
+      headers: this.buildHeaders(hasBody, options.accept),
     };
     if (hasBody) {
       init.body = JSON.stringify(options.body);
     }
 
-    // First attempt.
     let response = await this.fetchWithTimeout(url, init);
 
-    // Retry exactly once on 429, respecting Retry-After.
     if (response.status === 429) {
       const delayMs = parseRetryAfter(response.headers.get('Retry-After'));
       await sleep(delayMs);
@@ -168,22 +242,15 @@ export class HttpClient {
     try {
       return await this.fetchImpl(url, { ...init, signal: controller.signal });
     } catch (err) {
-      // Distinguish our own timeout from other network failures.
       if (isAbortError(err)) {
         throw new APIError(`Request to ${url} timed out after ${this.timeoutMs}ms`);
       }
-      throw new APIError(
-        `Network request to ${url} failed: ${errorMessage(err)}`,
-      );
+      throw new APIError(`Network request to ${url} failed: ${errorMessage(err)}`);
     } finally {
       clearTimeout(timer);
     }
   }
 }
-
-// -------------------------------------------------------------------------
-// Helpers
-// -------------------------------------------------------------------------
 
 function isAbortError(err: unknown): boolean {
   return (
@@ -199,22 +266,15 @@ function errorMessage(err: unknown): string {
 
 /**
  * Parse the `Retry-After` header into a delay in milliseconds.
- *
- * The header can be either a delta-seconds value (`"5"`) or an HTTP-date
- * (`"Wed, 21 Oct 2015 07:28:00 GMT"`). We handle both. Anything unparseable
- * falls back to a 1-second delay. All values are capped at 30 seconds so a
- * misbehaving server can't stall the SDK indefinitely.
  */
 export function parseRetryAfter(header: string | null): number {
   if (!header) return DEFAULT_RETRY_DELAY_MS;
 
-  // Numeric delta-seconds form.
   const asNumber = Number(header);
   if (Number.isFinite(asNumber) && asNumber >= 0) {
     return Math.min(asNumber * 1000, RETRY_AFTER_CAP_MS);
   }
 
-  // HTTP-date form.
   const asDate = Date.parse(header);
   if (!Number.isNaN(asDate)) {
     const delta = asDate - Date.now();
@@ -225,17 +285,25 @@ export function parseRetryAfter(header: string | null): number {
   return DEFAULT_RETRY_DELAY_MS;
 }
 
-/**
- * Map an error response to the appropriate {@link ScriftError} subclass and
- * throw it. This is the single chokepoint for error mapping in the SDK.
- */
+function retryAfterSecondsFromHeader(header: string | null): number | null {
+  if (!header) return null;
+  const trimmed = header.trim();
+  const asNum = Number(trimmed);
+  if (Number.isFinite(asNum) && asNum >= 0) {
+    return Math.floor(asNum);
+  }
+  const asDate = Date.parse(trimmed);
+  if (!Number.isNaN(asDate)) {
+    return Math.max(0, Math.floor((asDate - Date.now()) / 1000));
+  }
+  return null;
+}
+
 export async function raiseForStatus(response: Response): Promise<never> {
   const { status } = response;
   let errorCode: string | undefined;
   let message: string | undefined;
 
-  // Try to pull `{ error, message }` out of the body; tolerate any body
-  // shape (including non-JSON) because upstream proxies can return HTML.
   try {
     const body = (await response.clone().json()) as Partial<ApiErrorBody>;
     if (body && typeof body === 'object') {
@@ -243,7 +311,7 @@ export async function raiseForStatus(response: Response): Promise<never> {
       if (typeof body.message === 'string') message = body.message;
     }
   } catch {
-    // Non-JSON body. Fall back to a status-based message below.
+    // Non-JSON body.
   }
 
   const finalMessage = message ?? `HTTP ${status} ${response.statusText}`.trim();
@@ -257,13 +325,12 @@ export async function raiseForStatus(response: Response): Promise<never> {
     case 422:
       throw new ValidationError(finalMessage, init);
     case 429: {
-      const retryAfterHeader = response.headers.get('Retry-After');
-      const retryAfterSeconds = retryAfterHeader
-        ? parseRetryAfter(retryAfterHeader) / 1000
-        : undefined;
-      throw new RateLimitError(finalMessage, {
+      const retryAfter = retryAfterSecondsFromHeader(
+        response.headers.get('Retry-After'),
+      );
+      throw new ScriftRateLimitError(finalMessage, {
         ...init,
-        retryAfter: retryAfterSeconds,
+        retryAfter,
       });
     }
     default:
