@@ -1,10 +1,9 @@
 /**
  * Catalog resource — wraps `/v1/catalog*` and `/v1/search`.
  *
- * Thin pass-through layer: every method is a one-liner into `HttpClient`.
- * No validation, no retries, no error handling — those belong in `http.ts`.
- * If you need to add a new catalog endpoint, add a method here and (if the
- * response shape is new) a type to `types.ts`. That's it.
+ * Thin pass-through layer: every method delegates to `HttpClient.requestJson`.
+ * Client-side argument validation throws {@link TypeError} before any HTTP
+ * call. Retries and error mapping live in `http.ts`.
  */
 
 import type { HttpClient } from '../http.js';
@@ -16,6 +15,7 @@ import type {
   SearchResponse,
   ServiceResponse,
 } from '../types.js';
+import { assertValidBatchSlugs, assertValidListOptions } from '../types.js';
 
 export class CatalogResource {
   constructor(private readonly http: HttpClient) {}
@@ -38,6 +38,7 @@ export class CatalogResource {
    * @param options.offset Offset into the result set.
    */
   list(options: ListOptions = {}): Promise<CatalogListResponse> {
+    assertValidListOptions(options);
     return this.http.requestJson<CatalogListResponse>({
       path: '/v1/catalog',
       query: {
@@ -50,11 +51,11 @@ export class CatalogResource {
   /**
    * Look up multiple brands by slug in a single request.
    *
-   * The API accepts up to 50 slugs per call. The SDK does not enforce this
-   * client-side — the server will return a 422 {@link ValidationError} if
-   * you exceed the limit.
+   * The API accepts up to 50 slugs per call; the SDK enforces this
+   * client-side before sending.
    */
   batch(slugs: string[]): Promise<BatchResponse> {
+    assertValidBatchSlugs(slugs);
     return this.http.requestJson<BatchResponse>({
       method: 'POST',
       path: '/v1/catalog/batch',

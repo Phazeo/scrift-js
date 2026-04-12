@@ -17,14 +17,16 @@ Vercel Edge, AWS Lambda. The SDK uses only web-standard `fetch` and
 src/
 ├── index.ts             Public entry point (re-exports only)
 ├── client.ts            ScriftClient — attaches resources to one HttpClient
+├── api-key.ts           API key format validation (constructor-time)
 ├── http.ts              HttpClient — auth, retry, timeout, error mapping
 ├── errors.ts            Error class hierarchy
-├── types.ts             All TypeScript interfaces and type aliases
+├── types.ts             Types, models, and client-side validation helpers
 ├── version.ts           Version constant (baked into User-Agent)
 └── resources/
     ├── catalog.ts       CatalogResource
     ├── svg.ts           SvgResource
-    └── brand.ts         BrandResource
+    ├── brand.ts         BrandResource
+    └── raster.ts        RasterResource (PNG/WebP bytes)
 ```
 
 ## Dependency direction
@@ -38,7 +40,9 @@ client.ts
    └──► resources/*.ts
             │
             └──► http.ts ──► errors.ts
-                       └──► types.ts
+                       ├──► types.ts
+                       ├──► api-key.ts
+                       └──► version.ts
 ```
 
 Concrete rules, enforced in review:
@@ -49,33 +53,39 @@ Concrete rules, enforced in review:
    If a resource file grows an `import` from anywhere else, something is
    wrong.
 
-2. **`http.ts` may only import from `errors.ts`, `types.ts`, and `version.ts`.**
-   It is the single place that knows about auth headers, retries,
-   timeouts, and the shape of error responses.
+2. **`http.ts` may only import from `errors.ts`, `types.ts`, `version.ts`,
+   and `api-key.ts`.** It is the single place that knows about auth headers,
+   retries, timeouts, rate-limit header attachment on JSON bodies, and the
+   shape of error responses.
 
 3. **`errors.ts` imports nothing from the SDK.** Error classes are the
    innermost layer — they have no knowledge of HTTP, resources, or types.
 
-4. **`types.ts` imports nothing.** It is pure type definitions, safe to
-   import from any layer.
+4. **`types.ts` imports nothing.** It holds shared models and small
+   client-side validation helpers used by resources.
 
 5. **`index.ts` imports everything but implements nothing.** It is a
    barrel file whose sole purpose is to control the public API surface.
 
 ## HTTP layer contract
 
-`HttpClient` exposes exactly two methods to resources:
+`HttpClient` exposes three methods to resources:
 
 ```ts
-requestJson<T>(options: RequestOptions): Promise<T>
+requestJson<T>(options: RequestOptions): Promise<T & { rateLimit: ... }>
 requestText(options: RequestOptions): Promise<string>
+requestArrayBuffer(options: RequestOptions): Promise<ArrayBuffer>
 ```
+
+JSON responses include `rateLimit` parsed from `X-RateLimit-*` headers; nested
+`ServiceResponse` entries in batch/list/search inherit the parent rate limit.
 
 Resources never touch anything else on `HttpClient`. All of the following
 behaviors are provided transparently:
 
 - **Authentication.** The `X-API-Key` header is injected on every
-  request from the `apiKey` passed to the constructor.
+  request from the `apiKey` passed to the constructor (validated via
+  `api-key.ts`).
 - **User-Agent.** `scrift-sdk/{VERSION}` is sent on every request.
 - **Timeout.** Every request is bound to an `AbortController` with a
   default timeout of 30s (configurable via `timeoutMs`).

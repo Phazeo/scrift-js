@@ -51,9 +51,9 @@ export class NotFoundError extends ScriftError {
   }
 }
 
-export interface RateLimitErrorInit extends ScriftErrorInit {
+export interface ScriftRateLimitErrorInit extends ScriftErrorInit {
   /** Seconds to wait before retrying, parsed from the `Retry-After` header. */
-  retryAfter?: number;
+  retryAfter?: number | null;
 }
 
 /**
@@ -64,16 +64,21 @@ export interface RateLimitErrorInit extends ScriftErrorInit {
  * header, capped at 30 seconds) before surfacing this error, so seeing it
  * means even the retry attempt was rate-limited.
  */
-export class RateLimitError extends ScriftError {
-  public readonly retryAfter: number | undefined;
+export class ScriftRateLimitError extends ScriftError {
+  public readonly retryAfter: number | null;
 
-  constructor(message: string, init: RateLimitErrorInit = {}) {
+  constructor(message: string, init: ScriftRateLimitErrorInit = {}) {
     super(message, init);
-    this.name = 'RateLimitError';
-    this.retryAfter = init.retryAfter;
+    this.name = 'ScriftRateLimitError';
+    this.retryAfter = init.retryAfter ?? null;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
+
+/**
+ * @deprecated Use {@link ScriftRateLimitError}. Alias kept for v0.1.0 imports.
+ */
+export const RateLimitError = ScriftRateLimitError;
 
 /** Raised on HTTP 422 — request parameters failed server-side validation. */
 export class ValidationError extends ScriftError {

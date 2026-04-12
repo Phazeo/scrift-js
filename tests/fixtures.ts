@@ -4,6 +4,9 @@
  * Response payloads mirror real API responses we've captured from
  * api.scrift.app, including the camelCase field names and the `_css` /
  * `_notice` underscore-prefixed keys.
+ *
+ * JSON bodies omit `rateLimit` — the SDK attaches it from `X-RateLimit-*`
+ * headers in `http.ts`, not from the JSON body.
  */
 
 import type {
@@ -14,7 +17,10 @@ import type {
   ServiceResponse,
 } from '../src/types.js';
 
-export const SERVICE_JSON: ServiceResponse = {
+/** Raw API JSON for a service (no `rateLimit` — comes from headers). */
+type ServiceBody = Omit<ServiceResponse, 'rateLimit'>;
+
+export const SERVICE_JSON: ServiceBody = {
   id: 1,
   slug: 'stripe',
   name: 'Stripe',
@@ -30,7 +36,7 @@ export const SERVICE_JSON: ServiceResponse = {
   _notice: 'Provided by Scrift',
 };
 
-export const GITHUB_JSON: ServiceResponse = {
+export const GITHUB_JSON: ServiceBody = {
   id: 2,
   slug: 'github',
   name: 'GitHub',
@@ -46,7 +52,9 @@ export const GITHUB_JSON: ServiceResponse = {
   _notice: 'Provided by Scrift',
 };
 
-export const BRAND_JSON: BrandResponse = {
+type BrandBody = Omit<BrandResponse, 'rateLimit'>;
+
+export const BRAND_JSON: BrandBody = {
   id: 1,
   slug: 'stripe',
   name: 'Stripe',
@@ -61,14 +69,18 @@ export const BRAND_JSON: BrandResponse = {
   _notice: 'Provided by Scrift',
 };
 
-export const LIST_JSON: CatalogListResponse = {
+type ListBody = Omit<CatalogListResponse, 'rateLimit'>;
+
+export const LIST_JSON: ListBody = {
   items: [SERVICE_JSON, GITHUB_JSON],
   total: 2,
   limit: 10,
   offset: 0,
 };
 
-export const BATCH_JSON: BatchResponse = {
+type BatchBody = Omit<BatchResponse, 'rateLimit'>;
+
+export const BATCH_JSON: BatchBody = {
   results: {
     stripe: SERVICE_JSON,
     nonexistent: null,
@@ -77,7 +89,9 @@ export const BATCH_JSON: BatchResponse = {
   notFound: ['nonexistent'],
 };
 
-export const SEARCH_JSON: SearchResponse = {
+type SearchBody = Omit<SearchResponse, 'rateLimit'>;
+
+export const SEARCH_JSON: SearchBody = {
   matches: [SERVICE_JSON],
   query: 'stripe',
   total: 1,
@@ -107,6 +121,13 @@ export const ERROR_INTERNAL = {
   message: 'Something went wrong',
 };
 
+/** Standard rate-limit headers for mocks. */
+export const RATE_LIMIT_HEADERS = {
+  'X-RateLimit-Limit': '1000',
+  'X-RateLimit-Remaining': '42',
+  'X-RateLimit-Reset': '1712592000',
+} as const;
+
 // ---------------------------------------------------------------------------
 // Mock fetch helpers
 // ---------------------------------------------------------------------------
@@ -117,6 +138,8 @@ export interface MockResponseInit {
   headers?: Record<string, string>;
   /** If set, returns `body` as a raw string rather than JSON.stringify-ing it. */
   raw?: boolean;
+  /** Raw binary body (takes precedence over `body` / `raw`). */
+  arrayBuffer?: ArrayBuffer;
 }
 
 /**
@@ -128,12 +151,23 @@ export interface MockResponseInit {
  */
 export function mockResponse(init: MockResponseInit = {}): Response {
   const status = init.status ?? 200;
+
+  if (init.arrayBuffer !== undefined) {
+    const headers = new Headers(init.headers ?? {});
+    return new Response(init.arrayBuffer, {
+      status,
+      statusText: status === 200 ? 'OK' : 'Error',
+      headers,
+    });
+  }
+
   const isJson = !init.raw;
-  const bodyText = init.body === undefined
-    ? ''
-    : isJson
-      ? JSON.stringify(init.body)
-      : String(init.body);
+  const bodyText =
+    init.body === undefined
+      ? ''
+      : isJson
+        ? JSON.stringify(init.body)
+        : String(init.body);
 
   const headers = new Headers(init.headers ?? {});
   if (isJson && init.body !== undefined && !headers.has('Content-Type')) {

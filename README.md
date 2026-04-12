@@ -57,13 +57,15 @@ const svg = await client.svg.get('stripe', { variant: 'dark' });
 | `client.catalog.search(q, {limit})`       | `SearchResponse`      | `GET /v1/search?q={q}`           |
 | `client.svg.get(slug, {variant})`         | `string` (SVG markup) | `GET /v1/svg/{slug}`             |
 | `client.brand.get(domain)`                | `BrandResponse`       | `GET /v1/brand?domain={domain}`  |
+| `client.raster.getPng(slug, {size, variant?})` | `ArrayBuffer`    | `GET /v1/png/{slug}`             |
+| `client.raster.getWebp(slug, {size, variant?})` | `ArrayBuffer`   | `GET /v1/webp/{slug}`            |
 
 ### SVG variants
 
 Valid values for the `variant` option on `svg.get`:
 
 ```ts
-type SvgVariant = 'mono' | 'color' | 'dark' | 'light' | 'wordmark' | 'icon';
+type SvgVariantOption = 'mono' | 'color' | 'dark' | 'light' | 'wordmark' | 'icon';
 ```
 
 Omit the option to get the brand's default variant.
@@ -72,7 +74,7 @@ Omit the option to get the brand's default variant.
 
 ```ts
 new Scrift({
-  apiKey: 'sk_live_…',                // required
+  apiKey: 'scrf_…',                   // required
   baseUrl: 'https://api.scrift.app',  // default
   timeoutMs: 30_000,                  // default (per-request)
   fetch: customFetch,                 // optional override
@@ -92,8 +94,8 @@ Every error raised by the SDK is a subclass of `ScriftError`, so a single
 import {
   AuthenticationError,
   NotFoundError,
-  RateLimitError,
   ScriftError,
+  ScriftRateLimitError,
   ValidationError,
 } from 'scrift-sdk';
 
@@ -104,8 +106,8 @@ try {
     // 404 — brand does not exist
   } else if (err instanceof AuthenticationError) {
     // 401 — bad or missing API key
-  } else if (err instanceof RateLimitError) {
-    // 429 — includes err.retryAfter (seconds) from the Retry-After header
+  } else if (err instanceof ScriftRateLimitError) {
+    // 429 — includes err.retryAfter (seconds or null) from Retry-After
   } else if (err instanceof ValidationError) {
     // 422 — server rejected the request parameters
   } else if (err instanceof ScriftError) {
@@ -122,7 +124,7 @@ try {
 | `AuthenticationError` | 401         | Missing, malformed, or revoked API key           |
 | `NotFoundError`       | 404         | Slug, domain, or variant does not exist          |
 | `ValidationError`     | 422         | Request parameters failed server-side validation |
-| `RateLimitError`      | 429         | Rate limit exhausted (retried once automatically)|
+| `ScriftRateLimitError`| 429         | Rate limit exhausted (retried once automatically)|
 | `APIError`            | other       | 5xx, network failures, timeouts                  |
 
 Every error exposes:
@@ -131,15 +133,16 @@ Every error exposes:
 - `statusCode` — HTTP status (when available)
 - `errorCode` — machine-readable code from the API (e.g. `"service_not_found"`)
 
-`RateLimitError` additionally exposes `retryAfter` (seconds) parsed from the
-`Retry-After` header.
+`ScriftRateLimitError` additionally exposes `retryAfter` (`number | null`,
+seconds) parsed from the `Retry-After` header. The `RateLimitError` name is a
+backward-compatible alias for the same class.
 
 ### Automatic retry
 
 The SDK retries **exactly once** on a 429 response, respecting the
 `Retry-After` header and capping the backoff at 30 seconds. It never retries
 other 4xx errors — those fail fast. If the retry also returns 429, a
-`RateLimitError` is raised.
+`ScriftRateLimitError` is raised.
 
 ## Works everywhere
 
